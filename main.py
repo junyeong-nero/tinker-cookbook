@@ -22,7 +22,13 @@ def main():
     }
 
     model_name = "Qwen/Qwen3-30B-A3B-Instruct-2507"
-    msgs = [{"role": "user", "content": "서울 날씨 알려줘"}]
+    # model_name = "Qwen/Qwen3-235B-A22B-Instruct-2507"
+    msgs = [
+        {
+            "role": "user",
+            "content": "get_current_weather tool 을 사용해서 현재 서울의 날씨를 알려줘.",
+        }
+    ]
 
     print(f"User Query: {msgs[0]['content']}")
     response = completion(model_name, msgs, tools=[weather_tool_def])
