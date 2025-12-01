@@ -6,9 +6,12 @@ import tinker
 from tinker import types
 from typing import List, Dict, Optional, Any, Union
 
+from transformers import AutoTokenizer
+
 # ==============================================================================
 # 1. Mock Classes for OpenAI Compatibility
 # ==============================================================================
+# (이전과 동일하므로 생략하지 않고 그대로 유지)
 
 
 class MockFunction:
@@ -16,7 +19,7 @@ class MockFunction:
 
     def __init__(self, name: str, arguments: str):
         self.name = name
-        self.arguments = arguments  # JSON string representation of arguments
+        self.arguments = arguments
 
 
 class MockToolCall:
@@ -73,7 +76,6 @@ class MockResponse:
         self.usage = usage
 
     def to_dict(self) -> Dict[str, Any]:
-        """Converts the response object to a dictionary."""
         return {
             "id": self.id,
             "choices": [
@@ -108,18 +110,13 @@ class MockResponse:
 # ==============================================================================
 # 2. Helper Functions (Template & Parsing)
 # ==============================================================================
+# (이전과 동일)
 
 
 def apply_qwen_chat_template(
     messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None
 ) -> str:
-    """
-    Constructs the prompt string using the Qwen chat template logic.
-    Handles system prompts, tool definitions, and conversation history.
-    """
     prompt = ""
-
-    # System Prompt & Tool Definitions
     if tools:
         prompt += "<|im_start|>system\n"
         if messages and messages[0]["role"] == "system":
@@ -142,12 +139,10 @@ def apply_qwen_chat_template(
         if messages and messages[0]["role"] == "system":
             prompt += f"<|im_start|>system\n{messages[0]['content']}<|im_end|>\n"
 
-    # Conversation History Loop
     for i, msg in enumerate(messages):
         role = msg["role"]
         content = msg.get("content", "") or ""
 
-        # Skip system message if already handled
         if role == "system" and i == 0:
             continue
 
@@ -157,7 +152,6 @@ def apply_qwen_chat_template(
         elif role == "assistant":
             prompt += f"<|im_start|>{role}\n{content}"
             if msg.get("tool_calls"):
-                # Append formatted tool calls if they exist in history
                 for tc in msg["tool_calls"]:
                     fn = tc.get("function", tc)
                     name = fn.get("name")
@@ -168,8 +162,6 @@ def apply_qwen_chat_template(
             prompt += "<|im_end|>\n"
 
         elif role == "tool":
-            # Group consecutive tool responses under one user block if needed,
-            # or strictly follow Qwen's expected format (User role wrapping tool_response).
             prev_role = messages[i - 1]["role"] if i > 0 else None
             next_role = messages[i + 1]["role"] if i < len(messages) - 1 else None
 
@@ -184,9 +176,6 @@ def apply_qwen_chat_template(
 
 
 def parse_tool_calls_from_text(text: str) -> List[Dict[str, Any]]:
-    """
-    Extracts JSON objects within <tool_call> XML tags from the generated text.
-    """
     pattern = r"<tool_call>\n(.*?)\n</tool_call>"
     matches = re.findall(pattern, text, re.DOTALL)
     tool_calls = []
@@ -201,10 +190,10 @@ def parse_tool_calls_from_text(text: str) -> List[Dict[str, Any]]:
 # ==============================================================================
 # 3. Tool Definitions (Example Registry)
 # ==============================================================================
+# (이전과 동일)
 
 
 def get_current_weather(location: str, unit: str = "celsius") -> str:
-    """Mock function to get current weather."""
     return json.dumps(
         {
             "location": location,
@@ -232,30 +221,22 @@ def completion(
     **kwargs: Any,
 ) -> MockResponse:
     """
-    Generates a chat completion using the Tinker library, supporting tool calling loops.
-
-    Args:
-        model: The model identifier path.
-        messages: A list of message dictionaries.
-        tools: A list of tool definitions (OpenAI schema).
-        tool_choice: Strategy for tool selection (e.g., "auto").
-        **kwargs: Sampling parameters (max_tokens, temperature, top_p, etc.).
-
-    Returns:
-        MockResponse: An object compatible with OpenAI's response structure.
+    Generates a chat completion using the Tinker library for sampling
+    and Hugging Face Transformers for tokenization.
     """
 
     # 1. Initialize Clients
     service_client = tinker.ServiceClient()
     sampling_client = service_client.create_sampling_client(base_model=model)
-    training_client = service_client.create_lora_training_client(base_model=model)
-    tokenizer = training_client.get_tokenizer()
+
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model, trust_remote_code=True)
+    except Exception as e:
+        raise ValueError(f"Failed to load tokenizer from '{model}'. Error: {e}")
 
     # 2. Extract Parameters
     max_tokens = kwargs.get("max_tokens", 1024)
-    temperature = kwargs.get(
-        "temperature", 0.5
-    )  # Lower temperature for reliable tool calling
+    temperature = kwargs.get("temperature", 0.5)
     top_p = kwargs.get("top_p", 0.9)
     top_k = kwargs.get("top_k", 50)
     stop = kwargs.get("stop", ["<|im_end|>"])
@@ -270,7 +251,6 @@ def completion(
     final_content = ""
     finish_reason = "stop"
 
-    # List to store all tool calls made during the inference process
     all_accumulated_tool_calls: List[MockToolCall] = []
 
     # 4. Inference Loop
@@ -305,12 +285,13 @@ def completion(
         final_content = content_part
 
         if tool_calls_data:
-            # Convert raw dicts to MockToolCall objects
             current_turn_calls = []
             for tc in tool_calls_data:
                 args_val = tc.get("arguments")
+
+                # [수정됨] 한글 깨짐 방지를 위해 ensure_ascii=False 추가
                 args_str = (
-                    json.dumps(args_val)
+                    json.dumps(args_val, ensure_ascii=False)
                     if isinstance(args_val, dict)
                     else str(args_val)
                 )
@@ -322,10 +303,8 @@ def completion(
                 )
                 current_turn_calls.append(mock_call)
 
-            # Accumulate calls for final response
             all_accumulated_tool_calls.extend(current_turn_calls)
 
-            # Update history: Assistant Message
             current_messages.append(
                 {
                     "role": "assistant",
@@ -334,12 +313,10 @@ def completion(
                 }
             )
 
-            # Execute Tools and Update history: Tool Messages
             for tc in tool_calls_data:
                 func_name = tc.get("name")
                 args = tc.get("arguments")
 
-                # Parse arguments if string
                 if isinstance(args, str):
                     try:
                         args = json.loads(args)
@@ -348,6 +325,8 @@ def completion(
 
                 if func_name in AVAILABLE_FUNCTIONS:
                     try:
+                        # 실행 결과 생성 시에도 한글 처리가 필요할 수 있습니다.
+                        # (Mock Function들은 이미 처리되어 있다고 가정)
                         res = AVAILABLE_FUNCTIONS[func_name](**args)
                     except Exception as e:
                         res = f"Error executing {func_name}: {str(e)}"
@@ -362,17 +341,13 @@ def completion(
                             "content": f"Error: Function {func_name} not found",
                         }
                     )
-
-            # Continue to next turn (Agentic loop)
             continue
 
         else:
-            # No tool calls -> Final answer generated
             finish_reason = "stop"
             break
 
     else:
-        # Loop exited without break (Max turns reached)
         finish_reason = "length"
 
     # 5. Construct Response
