@@ -13,7 +13,6 @@ dependencies = [
     "numpy",
     "rich",
     "termcolor",
-    "tinker>=0.3.0",
     "torch",
     "transformers",
     "blobfile",
@@ -24,6 +23,9 @@ dependencies = [
     "textarena>=0.7.4",
     "math-verify",
     "scipy",
+    "pillow>=11.3.0",
+    "tinker>=0.6.1",
+    "matplotlib>=3.10.7",
 ]
 
 [project.urls]

@@ -4,14 +4,15 @@ import uuid
 import time
 import tinker
 from tinker import types
+from tinker_cookbook.tokenizer_utils import get_tokenizer
 from typing import List, Dict, Optional, Any, Union
-
-from transformers import AutoTokenizer
 
 # ==============================================================================
 # 1. Mock Classes for OpenAI Compatibility
 # ==============================================================================
 # (이전과 동일하므로 생략하지 않고 그대로 유지)
+
+service_client = tinker.ServiceClient()
 
 
 class MockFunction:
@@ -226,13 +227,8 @@ def completion(
     """
 
     # 1. Initialize Clients
-    service_client = tinker.ServiceClient()
     sampling_client = service_client.create_sampling_client(base_model=model)
-
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(model, trust_remote_code=True)
-    except Exception as e:
-        raise ValueError(f"Failed to load tokenizer from '{model}'. Error: {e}")
+    tokenizer = get_tokenizer(model)
 
     # 2. Extract Parameters
     max_tokens = kwargs.get("max_tokens", 1024)
